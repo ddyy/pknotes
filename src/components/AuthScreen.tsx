@@ -61,7 +61,7 @@ export function AuthScreen() {
               <input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g. daniel"
+                placeholder="username"
                 autoComplete="username webauthn"
                 required
                 minLength={3}
