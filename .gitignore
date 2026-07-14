@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+worker-configuration.d.ts
+.DS_Store
+.claude/
+.playwright-mcp/

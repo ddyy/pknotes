@@ -1,0 +1,54 @@
+{
+  "name": "pknotes",
+  "version": "1.0.0",
+  "description": "End-to-end encrypted notes on Cloudflare Workers — passkey (WebAuthn PRF) key management, D1 storage.",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run check && vite build",
+    "check": "tsc -p tsconfig.json && tsc -p tsconfig.worker.json",
+    "cf-typegen": "wrangler types",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "predev": "node scripts/predev.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.6",
+    "@lezer/highlight": "^1.2.3",
+    "@simplewebauthn/server": "^13.3.2",
+    "codemirror": "^6.0.2",
+    "dompurify": "^3.4.12",
+    "hono": "^4.12.30",
+    "markdown-it": "^14.3.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.44.0",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.4",
+    "wrangler": "^4.110.0"
+  },
+  "private": true,
+  "type": "module",
+  "cloudflare": {
+    "label": "pknotes",
+    "bindings": {
+      "SESSION_SECRET": {
+        "description": "Long random string used to sign session cookies (e.g. output of: openssl rand -base64 32)"
+      }
+    }
+  }
+}
