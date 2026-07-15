@@ -27,10 +27,41 @@ body,
 }
 
 body {
-  background: var(--bg);
+  /* Faint amber warmth from above, a breath of green from below — the two
+     accent hues, barely present, so the flat charcoal gets depth. */
+  background:
+    radial-gradient(60rem 40rem at 85% -10%, rgb(232 176 75 / 0.05), transparent 60%),
+    radial-gradient(50rem 35rem at -15% 110%, rgb(158 207 122 / 0.03), transparent 60%),
+    var(--bg);
   color: var(--fg);
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Film grain over everything (incl. modals) — at this opacity it reads as
+   paper texture, not noise. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.028;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::selection {
+  background: var(--selection);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 button {
@@ -41,6 +72,7 @@ button {
   border-radius: 6px;
   padding: 0.45rem 0.9rem;
   cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background-color 0.12s ease;
 }
 
 button:hover {
@@ -98,6 +130,17 @@ button.danger:hover {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 2rem;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 1rem 3rem rgb(0 0 0 / 0.35);
+  animation: rise 0.35s ease-out both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 
 .auth-card h1 {
@@ -223,6 +266,11 @@ button.danger:hover {
   letter-spacing: 0.02em;
 }
 
+.brand::after {
+  content: '.';
+  color: var(--accent);
+}
+
 .note-search {
   margin: 0.5rem 0.5rem 0;
   padding: 0.45rem 0.65rem;
@@ -265,12 +313,15 @@ button.danger:hover {
 
 .note-item.active {
   background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .note-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
 }
 
 .note-when {
@@ -318,8 +369,10 @@ button.danger:hover {
   gap: 1rem;
   background: var(--bg-hover);
   border-bottom: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
+  animation: rise 0.2s ease-out both;
 }
 
 .note-toolbar {
@@ -338,10 +391,42 @@ button.danger:hover {
 .save-state {
   font-size: 0.8rem;
   color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.save-state.saving::before,
+.save-state.saved::before,
+.save-state.error::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.save-state.saving::before {
+  background: var(--accent);
+  animation: breathe 1s ease-in-out infinite;
+}
+
+.save-state.saved::before {
+  background: var(--code);
+}
+
+.save-state.error::before {
+  background: var(--danger);
 }
 
 .save-state.error {
   color: var(--danger);
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .editor {
@@ -360,6 +445,12 @@ button.danger:hover {
   color: var(--muted);
   padding: 2rem;
   text-align: center;
+  font-family: var(--font-body);
+  font-style: italic;
+}
+
+.placeholder.pulse {
+  animation: breathe 1.6s ease-in-out infinite;
 }
 
 .preview {
@@ -436,6 +527,10 @@ button.danger:hover {
   width: min(28rem, 100%);
   max-height: 85vh;
   overflow-y: auto;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 1rem 3rem rgb(0 0 0 / 0.35);
+  animation: rise 0.25s ease-out both;
 }
 
 .settings-header {
@@ -493,6 +588,7 @@ button.danger:hover {
 /* Sidebar drawer controls — desktop keeps the sidebar in the grid, so the
    menu button and scrim only exist on small screens. */
 .menu-button,
+.lock-button,
 .scrim {
   display: none;
 }
@@ -534,7 +630,17 @@ button.danger:hover {
     padding: 0;
   }
 
-  .menu-button {
+  .menu-button,
+  .lock-button {
     display: inline-flex;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
   }
 }

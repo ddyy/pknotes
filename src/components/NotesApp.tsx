@@ -293,7 +293,7 @@ export function NotesApp() {
           </div>
         )}
         {loading ? (
-          <div className="placeholder">Decrypting your notes…</div>
+          <div className="placeholder pulse">Decrypting your notes…</div>
         ) : (
           <>
             <div className={`note-toolbar ${selected ? '' : 'no-note'}`}>
@@ -306,21 +306,26 @@ export function NotesApp() {
                 >
                   ☰ Notes
                 </button>
-                <span className={`save-state ${saveState}`}>
+                <span className={`save-state ${selected ? saveState : 'idle'}`}>
                   {selected &&
                     (saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Save failed' : '')}
                 </span>
               </div>
-              {selected && (
-                <div className="toolbar-actions">
-                  <button type="button" className="ghost small" onClick={() => setShowPreview((p) => !p)}>
-                    {showPreview ? 'Edit' : 'Preview'}
-                  </button>
-                  <button type="button" className="ghost small danger" onClick={() => void deleteNote(selected.id)}>
-                    Delete
-                  </button>
-                </div>
-              )}
+              <div className="toolbar-actions">
+                {selected && (
+                  <>
+                    <button type="button" className="ghost small" onClick={() => setShowPreview((p) => !p)}>
+                      {showPreview ? 'Edit' : 'Preview'}
+                    </button>
+                    <button type="button" className="ghost small danger" onClick={() => void deleteNote(selected.id)}>
+                      Delete
+                    </button>
+                  </>
+                )}
+                <button type="button" className="ghost small lock-button" onClick={() => void lock()}>
+                  Lock
+                </button>
+              </div>
             </div>
             {!selected ? (
               <div className="placeholder">Select a note or create a new one.</div>
