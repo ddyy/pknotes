@@ -41,20 +41,24 @@ async function importAesKey(raw: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', raw as BufferSource, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
-async function aesEncrypt(key: CryptoKey, plaintext: Uint8Array): Promise<string> {
+async function aesEncrypt(key: CryptoKey, plaintext: Uint8Array, aad?: Uint8Array): Promise<string> {
   const iv = randomBytes(12);
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, plaintext as BufferSource));
+  const params: AesGcmParams = { name: 'AES-GCM', iv: iv as BufferSource };
+  if (aad) params.additionalData = aad as BufferSource;
+  const ct = new Uint8Array(await crypto.subtle.encrypt(params, key, plaintext as BufferSource));
   const out = new Uint8Array(iv.length + ct.length);
   out.set(iv);
   out.set(ct, iv.length);
   return b64uEncode(out);
 }
 
-async function aesDecrypt(key: CryptoKey, blob: string): Promise<Uint8Array> {
+async function aesDecrypt(key: CryptoKey, blob: string, aad?: Uint8Array): Promise<Uint8Array> {
   const data = b64uDecode(blob);
   const iv = data.slice(0, 12);
   const ct = data.slice(12);
-  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, ct as BufferSource));
+  const params: AesGcmParams = { name: 'AES-GCM', iv: iv as BufferSource };
+  if (aad) params.additionalData = aad as BufferSource;
+  return new Uint8Array(await crypto.subtle.decrypt(params, key, ct as BufferSource));
 }
 
 // ---------- Master key ----------
@@ -82,12 +86,26 @@ export async function unwrapMasterKey(kek: CryptoKey, wrapped: string): Promise<
 
 // ---------- Notes ----------
 
-export async function encryptNote(masterKey: CryptoKey, markdown: string): Promise<string> {
-  return aesEncrypt(masterKey, enc.encode(markdown));
+// The note id is bound to the ciphertext as AES-GCM additional data, so a
+// malicious server can't swap ciphertexts between notes undetected. (It can
+// still replay an older version of the same note — detecting that would need
+// client-side version state.)
+function noteAad(noteId: string): Uint8Array {
+  return enc.encode(`pknotes/note/v1:${noteId}`);
 }
 
-export async function decryptNote(masterKey: CryptoKey, ciphertext: string): Promise<string> {
-  return dec.decode(await aesDecrypt(masterKey, ciphertext));
+export async function encryptNote(masterKey: CryptoKey, markdown: string, noteId: string): Promise<string> {
+  return aesEncrypt(masterKey, enc.encode(markdown), noteAad(noteId));
+}
+
+export async function decryptNote(masterKey: CryptoKey, ciphertext: string, noteId: string): Promise<string> {
+  try {
+    return dec.decode(await aesDecrypt(masterKey, ciphertext, noteAad(noteId)));
+  } catch {
+    // Blobs written before AAD binding have no additional data; they get
+    // rewritten in the bound format on their next save (or on key rotation).
+    return dec.decode(await aesDecrypt(masterKey, ciphertext));
+  }
 }
 
 // ---------- Recovery codes ----------

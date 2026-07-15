@@ -6,6 +6,7 @@
     "dev": "vite",
     "build": "npm run check && vite build",
     "check": "node scripts/ensure-dev-vars.mjs && wrangler types && tsc -p tsconfig.json && tsc -p tsconfig.worker.json",
+    "test": "node --test tests/*.test.ts",
     "cf-typegen": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",

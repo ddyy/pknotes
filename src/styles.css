@@ -223,6 +223,21 @@ button.danger:hover {
   letter-spacing: 0.02em;
 }
 
+.note-search {
+  margin: 0.5rem 0.5rem 0;
+  padding: 0.45rem 0.65rem;
+  background: var(--bg);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.note-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .note-list {
   list-style: none;
   margin: 0;
@@ -399,6 +414,80 @@ button.danger:hover {
   margin-left: 0;
   padding-left: 1rem;
   color: var(--muted);
+}
+
+/* ---------- Settings ---------- */
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgb(0 0 0 / 0.45);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.settings-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem 1.5rem;
+  width: min(28rem, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-card h2 {
+  margin: 0;
+}
+
+.settings-card h3 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.settings-card .muted {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: 0.5rem 0 0;
+}
+
+.credential-list {
+  list-style: none;
+  margin: 0 0 0.6rem;
+  padding: 0;
+}
+
+.credential-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+}
+
+.credential-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.credential-name em {
+  color: var(--accent);
+  font-style: normal;
+}
+
+.credential-when {
+  color: var(--muted);
+  font-size: 0.78rem;
+  flex-shrink: 0;
 }
 
 /* Sidebar drawer controls — desktop keeps the sidebar in the grid, so the

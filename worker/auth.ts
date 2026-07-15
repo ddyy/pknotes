@@ -322,6 +322,116 @@ auth.post('/credentials/verify', requireAuth(['session', 'recovery']), async (c)
   return c.json({ ok: true });
 });
 
+// ---------- Passkey management & master key rotation ----------
+
+auth.get('/credentials', requireAuth(['session']), async (c) => {
+  const { results } = await c.env.DB.prepare(
+    'SELECT id, transports, created_at FROM credentials WHERE user_id = ? ORDER BY created_at ASC',
+  )
+    .bind(c.get('userId'))
+    .all<{ id: string; transports: string | null; created_at: number }>();
+  return c.json({
+    credentials: results.map((row) => ({
+      id: row.id,
+      transports: parseTransports(row.transports),
+      created_at: row.created_at,
+    })),
+  });
+});
+
+// Removing a credential blocks future logins with it, but a stolen device may
+// already hold decrypted data or the master key — full revocation is /rotate.
+auth.delete('/credentials/:id', requireAuth(['session']), async (c) => {
+  const userId = c.get('userId');
+  const count = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM credentials WHERE user_id = ?')
+    .bind(userId)
+    .first<{ n: number }>();
+  if (!count || count.n <= 1) return c.json({ error: 'Cannot remove the last passkey' }, 400);
+  const result = await c.env.DB.prepare('DELETE FROM credentials WHERE id = ? AND user_id = ?')
+    .bind(c.req.param('id'), userId)
+    .run();
+  if (result.meta.changes === 0) return c.json({ error: 'Passkey not found' }, 404);
+  return c.json({ ok: true });
+});
+
+// Rotate the master key: the client re-encrypts every note under a fresh key
+// and re-wraps it for the ONE passkey it is holding (wrapping for others is
+// impossible — their KEKs only exist during a ceremony on those devices), so
+// all other credentials are deleted and the recovery code is replaced. This
+// is the real revocation path after a device compromise.
+const MAX_ROTATE_NOTES = 10_000;
+
+interface RotatePayload {
+  credentialId: string;
+  wrappedMk: string;
+  recovery: { verifier: string; wrappedMk: string };
+  notes: { id: string; ciphertext: string; version: number }[];
+}
+
+auth.post('/rotate', requireAuth(['session']), async (c) => {
+  const body = await c.req.json<RotatePayload>().catch(() => null);
+  if (
+    !body ||
+    typeof body.credentialId !== 'string' ||
+    !isValidKeyBlob(body.wrappedMk) ||
+    !isValidKeyBlob(body.recovery?.verifier) ||
+    !isValidKeyBlob(body.recovery?.wrappedMk) ||
+    !Array.isArray(body.notes) ||
+    body.notes.length > MAX_ROTATE_NOTES ||
+    body.notes.some(
+      (n) =>
+        typeof n.id !== 'string' ||
+        typeof n.ciphertext !== 'string' ||
+        n.ciphertext.length === 0 ||
+        n.ciphertext.length > 1_000_000 ||
+        typeof n.version !== 'number',
+    )
+  ) {
+    return c.json({ error: 'Invalid rotation payload' }, 400);
+  }
+  const userId = c.get('userId');
+
+  const cred = await c.env.DB.prepare('SELECT id FROM credentials WHERE id = ? AND user_id = ?')
+    .bind(body.credentialId, userId)
+    .first();
+  if (!cred) return c.json({ error: 'Unknown passkey' }, 400);
+
+  // Reject if any note changed since the client encrypted (e.g. another
+  // device saved mid-rotation) — the client re-fetches and retries. The check
+  // runs just before the transactional batch; the remaining race window is a
+  // few milliseconds and a stale save afterwards fails its own version check.
+  const { results: current } = await c.env.DB.prepare('SELECT id, version FROM notes WHERE user_id = ?')
+    .bind(userId)
+    .all<{ id: string; version: number }>();
+  const payloadVersions = new Map(body.notes.map((n) => [n.id, n.version]));
+  for (const row of current) {
+    const v = payloadVersions.get(row.id);
+    if (v !== undefined && v !== row.version) {
+      return c.json({ error: 'Notes changed during rotation — try again' }, 409);
+    }
+  }
+  const known = new Set(current.map((r) => r.id));
+  if (body.notes.some((n) => !known.has(n.id))) {
+    return c.json({ error: 'Notes changed during rotation — try again' }, 409);
+  }
+
+  const ts = now();
+  const verifierHash = new Uint8Array(await crypto.subtle.digest('SHA-256', b64uDecode(body.recovery.verifier)));
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM credentials WHERE user_id = ? AND id != ?').bind(userId, body.credentialId),
+    c.env.DB.prepare('UPDATE credentials SET wrapped_mk = ? WHERE id = ?').bind(body.wrappedMk, body.credentialId),
+    c.env.DB.prepare(
+      'INSERT OR REPLACE INTO recovery (user_id, verifier_hash, wrapped_mk, created_at) VALUES (?, ?, ?, ?)',
+    ).bind(userId, b64uEncode(verifierHash), body.recovery.wrappedMk, ts),
+    ...body.notes.map((n) =>
+      c.env.DB.prepare(
+        'UPDATE notes SET ciphertext = ?, version = version + 1, updated_at = ? WHERE id = ? AND user_id = ?',
+      ).bind(n.ciphertext, ts, n.id, userId),
+    ),
+  ]);
+  return c.json({ ok: true });
+});
+
 // ---------- Session ----------
 
 auth.get('/me', requireAuth(['session']), async (c) => {

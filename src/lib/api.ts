@@ -53,6 +53,16 @@ export const api = {
     post<{ ok: true }>('/api/auth/recovery/setup', payload),
   recoveryRedeem: (payload: { username: string; verifier: string }) =>
     post<{ wrappedMk: string }>('/api/auth/recovery/redeem', payload),
+  listCredentials: () =>
+    request<{ credentials: { id: string; transports: string[]; created_at: number }[] }>('/api/auth/credentials'),
+  deleteCredential: (id: string) =>
+    request<{ ok: true }>(`/api/auth/credentials/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  rotate: (payload: {
+    credentialId: string;
+    wrappedMk: string;
+    recovery: { verifier: string; wrappedMk: string };
+    notes: { id: string; ciphertext: string; version: number }[];
+  }) => post<{ ok: true }>('/api/auth/rotate', payload),
   credentialsOptions: () => post<CreationOptionsJSON>('/api/auth/credentials/options'),
   credentialsVerify: (payload: { response: RegistrationResponsePayload; prfSalt: string; wrappedMk: string }) =>
     post<{ ok: true }>('/api/auth/credentials/verify', payload),
@@ -60,8 +70,8 @@ export const api = {
 
   // notes
   listNotes: () => request<{ notes: NoteRecord[] }>('/api/notes'),
-  createNote: (ciphertext: string) =>
-    post<{ id: string; version: number; created_at: number; updated_at: number }>('/api/notes', { ciphertext }),
+  createNote: (id: string, ciphertext: string) =>
+    post<{ id: string; version: number; created_at: number; updated_at: number }>('/api/notes', { id, ciphertext }),
   updateNote: (id: string, ciphertext: string, version: number) =>
     request<{ id: string; version: number; updated_at: number }>(`/api/notes/${id}`, {
       method: 'PUT',

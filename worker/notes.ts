@@ -29,17 +29,27 @@ notes.get('/', async (c) => {
   return c.json({ notes: results });
 });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 notes.post('/', async (c) => {
-  const { ciphertext } = await c.req.json<{ ciphertext: string }>();
+  // The client picks the id so it can bind it into the ciphertext (AES-GCM
+  // additional data) before the note exists server-side.
+  const { id, ciphertext } = await c.req.json<{ id?: string; ciphertext: string }>();
   if (!isValidCiphertext(ciphertext)) return c.json({ error: 'Invalid note payload' }, 400);
-  const id = crypto.randomUUID();
+  const noteId = typeof id === 'string' && UUID_RE.test(id) ? id : crypto.randomUUID();
   const ts = Math.floor(Date.now() / 1000);
-  await c.env.DB.prepare(
-    'INSERT INTO notes (id, user_id, ciphertext, version, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)',
-  )
-    .bind(id, c.get('userId'), ciphertext, ts, ts)
-    .run();
-  return c.json({ id, version: 1, created_at: ts, updated_at: ts }, 201);
+  try {
+    await c.env.DB.prepare(
+      'INSERT INTO notes (id, user_id, ciphertext, version, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)',
+    )
+      .bind(noteId, c.get('userId'), ciphertext, ts, ts)
+      .run();
+  } catch {
+    // Global primary key: a colliding id (vanishingly unlikely for honest
+    // clients) is rejected rather than overwritten.
+    return c.json({ error: 'Note id already exists' }, 409);
+  }
+  return c.json({ id: noteId, version: 1, created_at: ts, updated_at: ts }, 201);
 });
 
 notes.put('/:id', async (c) => {

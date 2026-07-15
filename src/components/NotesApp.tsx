@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError, type NoteRecord } from '../lib/api';
 import { decryptNote, encryptNote } from '../lib/crypto';
+import { noteTitle } from '../lib/title';
 import { useVault } from '../vault';
 import { Editor } from './Editor';
 import { Preview } from './Preview';
+import { Settings } from './Settings';
 
 interface LocalNote {
   id: string;
@@ -18,36 +20,6 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 const AUTOSAVE_MS = 800;
 
-// First prose line wins; fenced code, YAML frontmatter, horizontal rules, and
-// image-only lines don't make useful titles.
-function noteTitle(text: string): string {
-  let inFence = false;
-  let inFrontmatter = false;
-  let firstContentLine = true;
-  for (const rawLine of text.split('\n')) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const isFirst = firstContentLine;
-    firstContentLine = false;
-    if (/^(```|~~~)/.test(line)) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) continue;
-    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) {
-      // `---` as the very first content line opens frontmatter; any later
-      // delimiter closes it (or is just a horizontal rule).
-      inFrontmatter = isFirst;
-      continue;
-    }
-    if (inFrontmatter) continue;
-    if (/^!\[[^\]]*\]\([^)]*\)$/.test(line)) continue;
-    const title = line.replace(/^#+\s*/, '').trim().slice(0, 60);
-    if (title) return title;
-  }
-  return 'Untitled';
-}
-
 function formatWhen(ts: number): string {
   const d = new Date(ts * 1000);
   const today = new Date();
@@ -57,7 +29,7 @@ function formatWhen(ts: number): string {
 }
 
 export function NotesApp() {
-  const { username, masterKey, lock, addPasskey } = useVault();
+  const { username, masterKey, lock } = useVault();
   const [notes, setNotes] = useState<LocalNote[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,6 +37,8 @@ export function NotesApp() {
   const [showPreview, setShowPreview] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [query, setQuery] = useState('');
 
   const notesRef = useRef<LocalNote[]>([]);
   notesRef.current = notes;
@@ -82,7 +56,7 @@ export function NotesApp() {
           try {
             return {
               id: r.id,
-              text: await decryptNote(masterKey, r.ciphertext),
+              text: await decryptNote(masterKey, r.ciphertext, r.id),
               version: r.version,
               createdAt: r.created_at,
               updatedAt: r.updated_at,
@@ -126,7 +100,7 @@ export function NotesApp() {
       if (!note || note.undecryptable) return;
       setSaveState('saving');
       try {
-        const ciphertext = await encryptNote(masterKey, note.text);
+        const ciphertext = await encryptNote(masterKey, note.text, id);
         const result = await api.updateNote(id, ciphertext, note.version);
         setNotes((prev) =>
           prev.map((n) => (n.id === id ? { ...n, version: result.version, updatedAt: result.updated_at } : n)),
@@ -140,7 +114,7 @@ export function NotesApp() {
           const localText = note.text;
           // A server copy that fails to decrypt must surface as undecryptable,
           // not silently become an empty note.
-          const serverText = await decryptNote(masterKey, current.ciphertext).catch(() => null);
+          const serverText = await decryptNote(masterKey, current.ciphertext, id).catch(() => null);
           setNotes((prev) =>
             prev.map((n) =>
               n.id === id
@@ -155,7 +129,8 @@ export function NotesApp() {
             ),
           );
           const conflictText = `> Conflict copy — this device's version of "${noteTitle(localText)}"\n\n${localText}`;
-          const created = await api.createNote(await encryptNote(masterKey, conflictText));
+          const conflictId = crypto.randomUUID();
+          const created = await api.createNote(conflictId, await encryptNote(masterKey, conflictText, conflictId));
           setNotes((prev) => [
             {
               id: created.id,
@@ -219,7 +194,8 @@ export function NotesApp() {
 
   const createNote = useCallback(async () => {
     if (!masterKey) return;
-    const created = await api.createNote(await encryptNote(masterKey, ''));
+    const id = crypto.randomUUID();
+    const created = await api.createNote(id, await encryptNote(masterKey, '', id));
     setNotes((prev) => [
       { id: created.id, text: '', version: created.version, createdAt: created.created_at, updatedAt: created.updated_at },
       ...prev,
@@ -244,17 +220,12 @@ export function NotesApp() {
     [],
   );
 
-  const onAddPasskey = useCallback(async () => {
-    try {
-      await addPasskey();
-      setBanner('New passkey added. You can now unlock from that device.');
-    } catch (err) {
-      setBanner(err instanceof Error ? err.message : String(err));
-    }
-  }, [addPasskey]);
-
   const selected = notes.find((n) => n.id === selectedId) ?? null;
   const sorted = [...notes].sort((a, b) => b.updatedAt - a.updatedAt);
+  // Everything is already decrypted in memory, so search is a plain filter —
+  // the server couldn't help anyway.
+  const q = query.trim().toLowerCase();
+  const visible = q ? sorted.filter((n) => n.text.toLowerCase().includes(q)) : sorted;
 
   return (
     <div className="app-shell">
@@ -266,8 +237,15 @@ export function NotesApp() {
             + New
           </button>
         </header>
+        <input
+          type="search"
+          className="note-search"
+          placeholder="Search notes…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
         <ul className="note-list">
-          {sorted.map((n) => (
+          {visible.map((n) => (
             <li key={n.id}>
               <button
                 type="button"
@@ -283,19 +261,27 @@ export function NotesApp() {
             </li>
           ))}
           {!loading && notes.length === 0 && <li className="empty">No notes yet.</li>}
+          {!loading && notes.length > 0 && visible.length === 0 && <li className="empty">No matches.</li>}
         </ul>
         <footer className="sidebar-footer">
           <span className="user" title={`Signed in as ${username ?? ''}`}>
             {username}
           </span>
-          <button type="button" className="ghost small" onClick={() => void onAddPasskey()}>
-            Add passkey
+          <button type="button" className="ghost small" onClick={() => setShowSettings(true)}>
+            Settings
           </button>
           <button type="button" className="ghost small" onClick={() => void lock()}>
             Lock
           </button>
         </footer>
       </aside>
+      {showSettings && (
+        <Settings
+          notes={notes.map(({ id, text, version, updatedAt, undecryptable }) => ({ id, text, version, updatedAt, undecryptable }))}
+          onClose={() => setShowSettings(false)}
+          onNotice={setBanner}
+        />
+      )}
 
       <main className="main-pane">
         {banner && (
