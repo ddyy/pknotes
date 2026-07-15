@@ -677,3 +677,40 @@ button.danger:hover {
     transition: none !important;
   }
 }
+
+/* Touch targets: 44px minimum on small screens (Apple HIG); desktop keeps
+   its denser sizing. 16px inputs stop iOS zooming the viewport on focus. */
+@media (max-width: 640px) {
+  button {
+    min-height: 2.75rem;
+  }
+
+  button.small {
+    padding: 0.5rem 0.85rem;
+    font-size: 0.9rem;
+  }
+
+  .sidebar-footer button,
+  .lock-button,
+  .settings-header button {
+    min-width: 2.75rem;
+  }
+
+  .sidebar-footer {
+    gap: 0.5rem;
+  }
+
+  .note-item {
+    padding: 0.8rem 0.65rem;
+  }
+
+  .note-search {
+    font-size: 16px;
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+  }
+
+  .auth-card input {
+    padding: 0.7rem 0.75rem;
+  }
+}
