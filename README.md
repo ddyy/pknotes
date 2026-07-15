@@ -4,7 +4,7 @@ pknotes ("passkey notes") is end-to-end encrypted markdown notes on Cloudflare W
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ddyy/pknotes)
 
-> **Status**: working and self-hostable. It has not had an independent security audit, and there is no rate limiting or abuse protection yet. Treat it as a personal deployment, not a public service.
+> **Status**: working and self-hostable. It has not had an independent security audit. Treat it as a personal deployment, not a public service. Per-IP rate limits guard the auth endpoints, and registration can be closed once you've made your account (see below).
 
 ## How the encryption works
 
@@ -52,6 +52,13 @@ Passkeys work on `localhost` without HTTPS. `.dev.vars` holds the dev `SESSION_S
 npx wrangler d1 create pknotes            # once; put the id in wrangler.jsonc
 npx wrangler secret put SESSION_SECRET    # long random string
 npm run deploy                            # build + migrate + deploy
+```
+
+Once your account (and any family/friends' accounts) exist, close signup — new
+registrations get a 403 while everything else keeps working:
+
+```sh
+npx wrangler secret put ALLOW_REGISTRATION   # enter: false
 ```
 
 To keep working from a clone of this repo without committing your `database_id`

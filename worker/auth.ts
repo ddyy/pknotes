@@ -12,6 +12,7 @@ import type {
   RegistrationResponseJSON,
 } from '@simplewebauthn/server';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
+import { rateLimit } from './ratelimit';
 import {
   type AppEnv,
   b64uDecode,
@@ -41,6 +42,17 @@ interface CredentialRow {
 
 export const auth = new Hono<AppEnv>();
 
+const strict = rateLimit((env) => env.STRICT_LIMITER);
+const standard = rateLimit((env) => env.AUTH_LIMITER);
+
+// Personal instances can close signup after creating their account:
+//   npx wrangler secret put ALLOW_REGISTRATION   (value: false)
+// Read as an optional secret rather than a config var so it survives deploys
+// and stays out of the committed config.
+function registrationClosed(env: Env): boolean {
+  return (env as { ALLOW_REGISTRATION?: string }).ALLOW_REGISTRATION === 'false';
+}
+
 function rp(c: Context<AppEnv>) {
   const url = new URL(c.req.url);
   return { rpID: url.hostname, origin: url.origin };
@@ -64,7 +76,8 @@ function parseTransports(raw: string | null): AuthenticatorTransportFuture[] {
 
 // ---------- Registration ----------
 
-auth.post('/register/options', async (c) => {
+auth.post('/register/options', strict, async (c) => {
+  if (registrationClosed(c.env)) return c.json({ error: 'Registration is closed on this instance.' }, 403);
   const { username } = await c.req.json<{ username?: string }>().catch(() => ({ username: undefined }));
   if (!username || !USERNAME_RE.test(username)) {
     return c.json({ error: 'Username must be 3-32 characters (letters, digits, . _ -)' }, 400);
@@ -85,7 +98,8 @@ auth.post('/register/options', async (c) => {
   return c.json(options);
 });
 
-auth.post('/register/verify', async (c) => {
+auth.post('/register/verify', strict, async (c) => {
+  if (registrationClosed(c.env)) return c.json({ error: 'Registration is closed on this instance.' }, 403);
   const body = await c.req.json<{ response: RegistrationResponseJSON; prfSalt: string; wrappedMk: string }>();
   if (!isValidKeyBlob(body.prfSalt) || !isValidKeyBlob(body.wrappedMk)) {
     return c.json({ error: 'Missing key material' }, 400);
@@ -142,13 +156,13 @@ auth.post('/register/verify', async (c) => {
 
 // ---------- Login (usernameless: any resident passkey for this RP) ----------
 
-auth.post('/login/options', async (c) => {
+auth.post('/login/options', standard, async (c) => {
   const options = await generateAuthenticationOptions({ rpID: rp(c).rpID, userVerification: 'required' });
   await setChallengeCookie(c, { challenge: options.challenge });
   return c.json(options);
 });
 
-auth.post('/login/verify', async (c) => {
+auth.post('/login/verify', standard, async (c) => {
   const { response } = await c.req.json<{ response: AuthenticationResponseJSON }>();
   const chal = await readChallengeCookie(c);
   if (!chal) return c.json({ error: 'No pending login' }, 400);
@@ -197,7 +211,7 @@ auth.post('/login/verify', async (c) => {
 // ---------- Recovery ----------
 
 // Store the recovery-wrapped master key (called right after registration).
-auth.post('/recovery/setup', requireAuth(['session']), async (c) => {
+auth.post('/recovery/setup', standard, requireAuth(['session']), async (c) => {
   const { verifier, wrappedMk } = await c.req.json<{ verifier: string; wrappedMk: string }>();
   if (!isValidKeyBlob(verifier) || !isValidKeyBlob(wrappedMk)) {
     return c.json({ error: 'Missing key material' }, 400);
@@ -218,7 +232,7 @@ auth.post('/recovery/setup', requireAuth(['session']), async (c) => {
 // recovery replaces the row with a fresh code via /recovery/setup.
 const REDEEM_GRACE = 60 * 10; // matches the recovery session TTL
 
-auth.post('/recovery/redeem', async (c) => {
+auth.post('/recovery/redeem', strict, async (c) => {
   const { username, verifier } = await c.req.json<{ username: string; verifier: string }>();
   if (typeof username !== 'string' || !isValidKeyBlob(verifier)) {
     return c.json({ error: 'Invalid request' }, 400);
@@ -249,7 +263,7 @@ auth.post('/recovery/redeem', async (c) => {
 
 // ---------- Add a passkey (new device, or re-establishing after recovery) ----------
 
-auth.post('/credentials/options', requireAuth(['session', 'recovery']), async (c) => {
+auth.post('/credentials/options', standard, requireAuth(['session', 'recovery']), async (c) => {
   const userId = c.get('userId');
   const user = await c.env.DB.prepare('SELECT username FROM users WHERE id = ?')
     .bind(userId)
@@ -275,7 +289,7 @@ auth.post('/credentials/options', requireAuth(['session', 'recovery']), async (c
   return c.json(options);
 });
 
-auth.post('/credentials/verify', requireAuth(['session', 'recovery']), async (c) => {
+auth.post('/credentials/verify', standard, requireAuth(['session', 'recovery']), async (c) => {
   const body = await c.req.json<{ response: RegistrationResponseJSON; prfSalt: string; wrappedMk: string }>();
   if (!isValidKeyBlob(body.prfSalt) || !isValidKeyBlob(body.wrappedMk)) {
     return c.json({ error: 'Missing key material' }, 400);
@@ -341,7 +355,7 @@ auth.get('/credentials', requireAuth(['session']), async (c) => {
 
 // Removing a credential blocks future logins with it, but a stolen device may
 // already hold decrypted data or the master key — full revocation is /rotate.
-auth.delete('/credentials/:id', requireAuth(['session']), async (c) => {
+auth.delete('/credentials/:id', standard, requireAuth(['session']), async (c) => {
   const userId = c.get('userId');
   const count = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM credentials WHERE user_id = ?')
     .bind(userId)
@@ -368,7 +382,7 @@ interface RotatePayload {
   notes: { id: string; ciphertext: string; version: number }[];
 }
 
-auth.post('/rotate', requireAuth(['session']), async (c) => {
+auth.post('/rotate', standard, requireAuth(['session']), async (c) => {
   const body = await c.req.json<RotatePayload>().catch(() => null);
   if (
     !body ||
