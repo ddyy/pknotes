@@ -1,6 +1,6 @@
 # pknotes
 
-End-to-end encrypted markdown notes on Cloudflare Workers. The encryption key comes from your passkey, so there is no master password and nothing the server could ever read.
+pknotes ("passkey notes") is end-to-end encrypted markdown notes on Cloudflare Workers. The encryption key comes from your passkey, so there is no master password and nothing the server could ever read.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ddyy/pknotes)
 
