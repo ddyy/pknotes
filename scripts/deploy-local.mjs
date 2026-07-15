@@ -24,11 +24,13 @@ const overridePath = path.join(root, process.argv[2] ?? '.deploy.local.json');
 
 let databaseId = process.env.D1_DATABASE_ID;
 let workerName;
+let crons;
 if (!databaseId) {
   try {
     const override = JSON.parse(readFileSync(overridePath, 'utf8'));
     databaseId = override.database_id;
     workerName = override.name;
+    crons = override.crons;
   } catch {
     console.error(
       `deploy-local: set D1_DATABASE_ID or create ${overridePath}\n` +
@@ -53,16 +55,18 @@ try {
   process.exit(1);
 }
 
-const source = readFileSync(generatedPath, 'utf8');
-if (!source.includes('"database_id"')) {
-  console.error(`deploy-local: no database_id field in ${generatedPath}`);
+// The generated config is plain JSON — parse, modify, rewrite.
+const config = JSON.parse(readFileSync(generatedPath, 'utf8'));
+if (!config.d1_databases?.[0]) {
+  console.error(`deploy-local: no d1_databases binding in ${generatedPath}`);
   process.exit(1);
 }
-let stamped = source.replace(/"database_id":\s*"[^"]*"/, `"database_id": "${databaseId}"`);
-if (workerName) {
-  stamped = stamped.replace(/"name":\s*"pknotes"/, `"name": "${workerName}"`);
+config.d1_databases[0].database_id = databaseId;
+if (workerName) config.name = workerName;
+if (Array.isArray(crons) && crons.length > 0) {
+  config.triggers = { ...(config.triggers ?? {}), crons };
 }
-writeFileSync(generatedPath, stamped);
+writeFileSync(generatedPath, JSON.stringify(config, null, 2));
 
 // d1 subcommands don't follow the .wrangler/deploy config redirect, so point
 // both commands at the stamped config explicitly.

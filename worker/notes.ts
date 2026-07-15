@@ -31,11 +31,31 @@ notes.get('/', async (c) => {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Optional per-user note cap for shared/demo instances:
+//   npx wrangler secret put MAX_NOTES_PER_USER   (e.g. 100)
+// Unset means unlimited. Applies to creation only — editing existing notes
+// is never blocked, so autosave can't hit it.
+function maxNotesPerUser(env: Env): number | null {
+  const raw = (env as { MAX_NOTES_PER_USER?: string }).MAX_NOTES_PER_USER;
+  const n = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 notes.post('/', async (c) => {
   // The client picks the id so it can bind it into the ciphertext (AES-GCM
   // additional data) before the note exists server-side.
   const { id, ciphertext } = await c.req.json<{ id?: string; ciphertext: string }>();
   if (!isValidCiphertext(ciphertext)) return c.json({ error: 'Invalid note payload' }, 400);
+
+  const limit = maxNotesPerUser(c.env);
+  if (limit !== null) {
+    const count = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM notes WHERE user_id = ?')
+      .bind(c.get('userId'))
+      .first<{ n: number }>();
+    if (count && count.n >= limit) {
+      return c.json({ error: `Note limit reached (${limit} per account on this instance)` }, 403);
+    }
+  }
   const noteId = typeof id === 'string' && UUID_RE.test(id) ? id : crypto.randomUUID();
   const ts = Math.floor(Date.now() / 1000);
   try {

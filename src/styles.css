@@ -131,6 +131,29 @@ button.danger:hover {
   color: var(--danger);
 }
 
+/* ---------- App frame (demo banner + content) ---------- */
+
+.app-frame {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-frame-main {
+  flex: 1;
+  min-height: 0;
+}
+
+.demo-banner {
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 0.82rem;
+  padding: 0.4rem 1rem;
+  color: var(--accent);
+  background: rgb(232 176 75 / 0.08);
+  border-bottom: 1px solid rgb(232 176 75 / 0.35);
+}
+
 /* ---------- Auth ---------- */
 
 .auth-screen {

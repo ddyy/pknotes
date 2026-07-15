@@ -6,6 +6,10 @@ pknotes ("passkey notes") is end-to-end encrypted markdown notes on Cloudflare W
 
 ![pknotes — encrypted markdown notes unlocked with a passkey](docs/screenshot.png)
 
+**Try it:** [pknotes-demo.dydev.workers.dev](https://pknotes-demo.dydev.workers.dev) — a
+public demo instance. Create a throwaway account with any passkey; demo data
+may be wiped at any time.
+
 > **Status**: working and self-hostable. It has not had an independent security audit. Treat it as a personal deployment, not a public service. Per-IP rate limits guard the auth endpoints, and registration can be closed once you've made your account (see below).
 
 ## How the encryption works
@@ -114,6 +118,13 @@ registrations get a 403 while everything else keeps working:
 
 ```sh
 npx wrangler secret put ALLOW_REGISTRATION   # enter: false
+```
+
+For shared or demo instances that stay open, an optional per-account note cap
+bounds what any one account can accumulate (unset = unlimited):
+
+```sh
+npx wrangler secret put MAX_NOTES_PER_USER   # e.g. 100
 ```
 
 To keep working from a clone of this repo without committing your `database_id`

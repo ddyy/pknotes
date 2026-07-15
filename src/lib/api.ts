@@ -49,6 +49,9 @@ const post = <T>(path: string, payload?: object) =>
   request<T>(path, { method: 'POST', body: payload ? JSON.stringify(payload) : '{}' });
 
 export const api = {
+  // instance
+  meta: () => request<{ demo: boolean }>('/api/meta'),
+
   // auth
   registerOptions: (username: string) => post<CreationOptionsJSON>('/api/auth/register/options', { username }),
   registerVerify: (payload: { response: RegistrationResponsePayload; prfSalt: string; wrappedMk: string }) =>

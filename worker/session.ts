@@ -115,6 +115,14 @@ export function requireAuth(scopes: AuthScope[]) {
     if (!session || !scopes.includes(session.scope)) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
+    // Sessions are stateless, so a signed cookie outlives account deletion
+    // (e.g. the demo wipe). Confirm the user still exists; the client treats
+    // any 401 as "lock the vault".
+    const user = await c.env.DB.prepare('SELECT 1 FROM users WHERE id = ?').bind(session.sub).first();
+    if (!user) {
+      clearSessionCookie(c);
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
     c.set('userId', session.sub);
     c.set('authScope', session.scope);
     await next();
