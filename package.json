@@ -12,6 +12,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
     "deploy:local": "npm run build && node scripts/deploy-local.mjs",
+    "deploy:demo": "npm run build && node scripts/deploy-local.mjs .deploy.demo.json",
     "predev": "node scripts/ensure-dev-vars.mjs && wrangler d1 migrations apply DB --local"
   },
   "keywords": [],

@@ -18,12 +18,17 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const overridePath = path.join(root, '.deploy.local.json');
+// Optional argument selects a different override file (e.g. .deploy.demo.json,
+// which may also set "name" to deploy a separate worker like pknotes-demo).
+const overridePath = path.join(root, process.argv[2] ?? '.deploy.local.json');
 
 let databaseId = process.env.D1_DATABASE_ID;
+let workerName;
 if (!databaseId) {
   try {
-    databaseId = JSON.parse(readFileSync(overridePath, 'utf8')).database_id;
+    const override = JSON.parse(readFileSync(overridePath, 'utf8'));
+    databaseId = override.database_id;
+    workerName = override.name;
   } catch {
     console.error(
       `deploy-local: set D1_DATABASE_ID or create ${overridePath}\n` +
@@ -53,7 +58,11 @@ if (!source.includes('"database_id"')) {
   console.error(`deploy-local: no database_id field in ${generatedPath}`);
   process.exit(1);
 }
-writeFileSync(generatedPath, source.replace(/"database_id":\s*"[^"]*"/, `"database_id": "${databaseId}"`));
+let stamped = source.replace(/"database_id":\s*"[^"]*"/, `"database_id": "${databaseId}"`);
+if (workerName) {
+  stamped = stamped.replace(/"name":\s*"pknotes"/, `"name": "${workerName}"`);
+}
+writeFileSync(generatedPath, stamped);
 
 // d1 subcommands don't follow the .wrangler/deploy config redirect, so point
 // both commands at the stamped config explicitly.
