@@ -55,9 +55,11 @@ if (!source.includes('"database_id"')) {
 }
 writeFileSync(generatedPath, source.replace(/"database_id":\s*"[^"]*"/, `"database_id": "${databaseId}"`));
 
+// d1 subcommands don't follow the .wrangler/deploy config redirect, so point
+// both commands at the stamped config explicitly.
 for (const args of [
-  ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--remote'],
-  ['wrangler', 'deploy'],
+  ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--remote', '--config', generatedPath],
+  ['wrangler', 'deploy', '--config', generatedPath],
 ]) {
   const result = spawnSync('npx', args, { cwd: root, stdio: 'inherit' });
   if (result.status !== 0) process.exit(result.status ?? 1);
