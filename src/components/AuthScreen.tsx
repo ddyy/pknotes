@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useVault } from '../vault';
+import { KeyIcon } from './icons';
 
 type Mode = 'unlock' | 'create' | 'recover';
 
@@ -84,6 +85,7 @@ export function AuthScreen() {
           {error && <p className="error">{error}</p>}
 
           <button type="submit" className="primary" disabled={busy}>
+            <KeyIcon />
             {busy
               ? 'Waiting for passkey…'
               : mode === 'unlock'

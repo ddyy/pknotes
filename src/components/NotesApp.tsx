@@ -4,6 +4,7 @@ import { decryptNote, encryptNote } from '../lib/crypto';
 import { noteTitle } from '../lib/title';
 import { useVault } from '../vault';
 import { Editor } from './Editor';
+import { EyeIcon, GearIcon, LockIcon, MenuIcon, PencilIcon, PlusIcon, TrashIcon, WarnIcon } from './icons';
 import { Preview } from './Preview';
 import { Settings } from './Settings';
 
@@ -234,7 +235,7 @@ export function NotesApp() {
         <header className="sidebar-header">
           <span className="brand">pknotes</span>
           <button type="button" className="primary small" onClick={() => void createNote()}>
-            + New
+            <PlusIcon /> New
           </button>
         </header>
         <input
@@ -255,7 +256,15 @@ export function NotesApp() {
                   setSidebarOpen(false);
                 }}
               >
-                <span className="note-title">{n.undecryptable ? '⚠️ Cannot decrypt' : noteTitle(n.text)}</span>
+                <span className="note-title">
+                  {n.undecryptable ? (
+                    <>
+                      <WarnIcon /> Cannot decrypt
+                    </>
+                  ) : (
+                    noteTitle(n.text)
+                  )}
+                </span>
                 <span className="note-when">{formatWhen(n.updatedAt)}</span>
               </button>
             </li>
@@ -267,11 +276,11 @@ export function NotesApp() {
           <span className="user" title={`Signed in as ${username ?? ''}`}>
             {username}
           </span>
-          <button type="button" className="ghost small" onClick={() => setShowSettings(true)}>
-            Settings
+          <button type="button" className="ghost small" aria-label="Settings" title="Settings" onClick={() => setShowSettings(true)}>
+            <GearIcon />
           </button>
-          <button type="button" className="ghost small" onClick={() => void lock()}>
-            Lock
+          <button type="button" className="ghost small" aria-label="Lock" title="Lock" onClick={() => void lock()}>
+            <LockIcon />
           </button>
         </footer>
       </aside>
@@ -304,7 +313,7 @@ export function NotesApp() {
                   aria-expanded={sidebarOpen}
                   onClick={() => setSidebarOpen(true)}
                 >
-                  ☰ Notes
+                  <MenuIcon /> Notes
                 </button>
                 <span className={`save-state ${selected ? saveState : 'idle'}`}>
                   {selected &&
@@ -315,15 +324,15 @@ export function NotesApp() {
                 {selected && (
                   <>
                     <button type="button" className="ghost small" onClick={() => setShowPreview((p) => !p)}>
-                      {showPreview ? 'Edit' : 'Preview'}
+                      {showPreview ? <PencilIcon /> : <EyeIcon />} {showPreview ? 'Edit' : 'Preview'}
                     </button>
                     <button type="button" className="ghost small danger" onClick={() => void deleteNote(selected.id)}>
-                      Delete
+                      <TrashIcon /> Delete
                     </button>
                   </>
                 )}
-                <button type="button" className="ghost small lock-button" onClick={() => void lock()}>
-                  Lock
+                <button type="button" className="ghost small lock-button" aria-label="Lock" title="Lock" onClick={() => void lock()}>
+                  <LockIcon />
                 </button>
               </div>
             </div>

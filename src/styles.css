@@ -73,6 +73,14 @@ button {
   padding: 0.45rem 0.9rem;
   cursor: pointer;
   transition: color 0.12s ease, border-color 0.12s ease, background-color 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+button svg {
+  flex-shrink: 0;
 }
 
 button:hover {
@@ -258,6 +266,10 @@ button.danger:hover {
   justify-content: space-between;
   padding: 0.85rem 1rem;
   border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-raised);
 }
 
 .brand {
@@ -273,8 +285,11 @@ button.danger:hover {
 
 .note-search {
   margin: 0.5rem 0.5rem 0;
-  padding: 0.45rem 0.65rem;
-  background: var(--bg);
+  padding: 0.45rem 0.65rem 0.45rem 1.9rem;
+  background:
+    var(--bg)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238b8f98' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='4.25'/%3E%3Cpath d='M10.5 10.5L14 14'/%3E%3C/svg%3E")
+    no-repeat 0.6rem center / 14px;
   color: inherit;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -322,6 +337,18 @@ button.danger:hover {
   white-space: nowrap;
   font-family: var(--font-body);
   font-size: 0.95rem;
+}
+
+/* The undecryptable marker: keep the icon on the text baseline row. */
+.note-title svg {
+  vertical-align: -0.15em;
+  color: var(--danger);
+}
+
+.credential-name svg {
+  vertical-align: -0.15em;
+  color: var(--muted);
+  margin-right: 0.15rem;
 }
 
 .note-when {
@@ -381,6 +408,12 @@ button.danger:hover {
   justify-content: space-between;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgb(20 22 26 / 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .toolbar-actions {

@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { noteTitle } from '../lib/title';
 import { buildZip } from '../lib/zip';
 import { useVault } from '../vault';
+import { DownloadIcon, KeyIcon, PlusIcon, RotateIcon } from './icons';
 
 interface CredentialInfo {
   id: string;
@@ -143,7 +144,7 @@ export function Settings({
               {credentials.map((cred) => (
                 <li key={cred.id}>
                   <span className="credential-name">
-                    Passkey …{cred.id.slice(-6)}
+                    <KeyIcon /> Passkey …{cred.id.slice(-6)}
                     {cred.id === currentCredentialId && <em> (this session)</em>}
                   </span>
                   <span className="credential-when">
@@ -163,7 +164,7 @@ export function Settings({
             </ul>
           )}
           <button type="button" className="ghost small" disabled={busy} onClick={() => void onAddPasskey()}>
-            Add passkey
+            <PlusIcon /> Add passkey
           </button>
           <p className="muted">
             Removing a passkey blocks it from signing in, but a compromised device may already hold your data.
@@ -174,7 +175,7 @@ export function Settings({
         <section>
           <h3>Master key</h3>
           <button type="button" className="ghost small danger" disabled={busy} onClick={() => void onRotate()}>
-            {busy ? 'Working…' : 'Rotate master key'}
+            <RotateIcon /> {busy ? 'Working…' : 'Rotate master key'}
           </button>
           <p className="muted">
             Re-encrypts every note with a fresh key. Only the passkey you confirm with survives; other devices
@@ -185,7 +186,7 @@ export function Settings({
         <section>
           <h3>Export</h3>
           <button type="button" className="ghost small" onClick={onExport}>
-            Download all notes (.zip)
+            <DownloadIcon /> Download all notes (.zip)
           </button>
           <p className="muted">Plain markdown files, decrypted locally — keep the archive somewhere safe.</p>
         </section>
