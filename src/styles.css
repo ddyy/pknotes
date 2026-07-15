@@ -115,8 +115,16 @@ button.ghost:hover {
 }
 
 button.small {
-  padding: 0.25rem 0.6rem;
+  padding: 0.35rem 0.75rem;
   font-size: 0.85rem;
+  min-height: 2rem;
+}
+
+/* Icon-only small buttons square up instead of hugging the glyph. */
+.sidebar-footer button,
+.lock-button,
+.settings-header button {
+  min-width: 2rem;
 }
 
 button.danger:hover {
