@@ -2,6 +2,7 @@ node_modules/
 dist/
 .wrangler/
 .dev.vars
+.deploy.local.json
 worker-configuration.d.ts
 .DS_Store
 .claude/

@@ -54,6 +54,14 @@ npx wrangler secret put SESSION_SECRET    # long random string
 npm run deploy                            # build + migrate + deploy
 ```
 
+To keep working from a clone of this repo without committing your `database_id`
+(e.g. it came from the deploy button), put it in a gitignored `.deploy.local.json`
+instead and use `npm run deploy:local`:
+
+```json
+{ "database_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" }
+```
+
 ## Requirements & caveats
 
 - Browsers need the WebAuthn **PRF extension**: Chrome/Edge, Safari 18+ (iOS/iPadOS 18.4+), recent Firefox.
