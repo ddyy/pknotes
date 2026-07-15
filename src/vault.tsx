@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
-import { api } from './lib/api';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { api, setUnauthorizedHandler } from './lib/api';
 import {
   APP_PRF_SALT,
   b64uEncode,
@@ -42,6 +42,11 @@ export function useVault(): VaultValue {
 }
 
 const PRF_SALT_B64 = b64uEncode(APP_PRF_SALT);
+
+// Auto-lock thresholds. Unlock is a single passkey tap, so locking
+// aggressively is cheap.
+const IDLE_LOCK_MS = 15 * 60_000;
+const HIDDEN_LOCK_MS = 5 * 60_000;
 
 export function VaultProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<'locked' | 'unlocked'>('locked');
@@ -187,6 +192,50 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     setStatus('locked');
     await api.logout().catch(() => undefined);
   }, []);
+
+  // If the server session expires mid-use (12h fixed TTL), wipe the key too —
+  // otherwise decrypted notes stay readable long after the API stops working.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      if (rawMkRef.current) void lock();
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [lock]);
+
+  // Idle and hidden-tab auto-lock. Background tabs can be frozen (timers
+  // don't fire), so the hidden path also checks the wall clock on return.
+  useEffect(() => {
+    if (status !== 'unlocked') return;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
+    let hiddenAt: number | null = null;
+    const doLock = () => void lock();
+    const resetIdle = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(doLock, IDLE_LOCK_MS);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        hiddenTimer = setTimeout(doLock, HIDDEN_LOCK_MS);
+      } else {
+        clearTimeout(hiddenTimer);
+        if (hiddenAt !== null && Date.now() - hiddenAt > HIDDEN_LOCK_MS) doLock();
+        hiddenAt = null;
+        resetIdle();
+      }
+    };
+    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
+    events.forEach((e) => window.addEventListener(e, resetIdle, { passive: true }));
+    document.addEventListener('visibilitychange', onVisibility);
+    resetIdle();
+    return () => {
+      clearTimeout(idleTimer);
+      clearTimeout(hiddenTimer);
+      events.forEach((e) => window.removeEventListener(e, resetIdle));
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [status, lock]);
 
   return (
     <VaultContext.Provider

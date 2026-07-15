@@ -24,6 +24,13 @@ export class ApiError extends Error {
   }
 }
 
+// Lets the vault lock itself when the server session expires mid-use, so
+// crypto access and API access end together.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null) {
+  onUnauthorized = fn;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     credentials: 'same-origin',
@@ -31,7 +38,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) throw new ApiError(res.status, body);
+  if (!res.ok) {
+    if (res.status === 401) onUnauthorized?.();
+    throw new ApiError(res.status, body);
+  }
   return body as T;
 }
 
