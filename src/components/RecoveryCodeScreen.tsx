@@ -1,6 +1,7 @@
 import { useVault } from '../vault';
 
-// Shown once, right after account creation, and gone forever after confirm.
+// Shown once — after account creation or a completed recovery (which rotates
+// the code) — and gone forever after confirm.
 export function RecoveryCodeScreen({ code }: { code: string }) {
   const { confirmRecoveryCode } = useVault();
   return (

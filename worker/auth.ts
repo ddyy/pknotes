@@ -213,22 +213,35 @@ auth.post('/recovery/setup', requireAuth(['session']), async (c) => {
 
 // Redeem a recovery code: returns the recovery-wrapped master key and a
 // short-lived recovery session that only permits registering a new passkey.
+// Codes are single-use: the first redemption starts a grace window (so an
+// interrupted recovery can retry), after which the code is dead. A completed
+// recovery replaces the row with a fresh code via /recovery/setup.
+const REDEEM_GRACE = 60 * 10; // matches the recovery session TTL
+
 auth.post('/recovery/redeem', async (c) => {
   const { username, verifier } = await c.req.json<{ username: string; verifier: string }>();
   if (typeof username !== 'string' || !isValidKeyBlob(verifier)) {
     return c.json({ error: 'Invalid request' }, 400);
   }
   const row = await c.env.DB.prepare(
-    'SELECT r.user_id, r.verifier_hash, r.wrapped_mk FROM recovery r JOIN users u ON u.id = r.user_id WHERE u.username = ?',
+    'SELECT r.user_id, r.verifier_hash, r.wrapped_mk, r.redeemed_at FROM recovery r JOIN users u ON u.id = r.user_id WHERE u.username = ?',
   )
     .bind(username)
-    .first<{ user_id: string; verifier_hash: string; wrapped_mk: string }>();
+    .first<{ user_id: string; verifier_hash: string; wrapped_mk: string; redeemed_at: number | null }>();
 
   const provided = new Uint8Array(await crypto.subtle.digest('SHA-256', b64uDecode(verifier)));
   // Compare against a dummy when the user doesn't exist so both paths do the same work.
   const stored = row ? b64uDecode(row.verifier_hash) : new Uint8Array(32);
   const match = stored.length === provided.length && crypto.subtle.timingSafeEqual(stored, provided);
   if (!row || !match) return c.json({ error: 'Invalid username or recovery code' }, 400);
+
+  const ts = now();
+  if (row.redeemed_at && ts - row.redeemed_at > REDEEM_GRACE) {
+    return c.json({ error: 'This recovery code has already been used. Each code works once.' }, 400);
+  }
+  if (!row.redeemed_at) {
+    await c.env.DB.prepare('UPDATE recovery SET redeemed_at = ? WHERE user_id = ?').bind(ts, row.user_id).run();
+  }
 
   await setSessionCookie(c, row.user_id, 'recovery');
   return c.json({ wrappedMk: row.wrapped_mk });

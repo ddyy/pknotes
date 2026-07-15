@@ -118,6 +118,12 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       }
       // Re-establish a passkey so the account is usable again going forward.
       await addPasskeyForKey(mkRaw);
+      // The redeemed code is spent (single-use on the server) — issue a fresh
+      // one and show it before the notes, same as at signup.
+      const newCode = generateRecoveryCode();
+      const { kek: newKek, verifier: newVerifier } = await recoveryKeysFromCode(newCode);
+      await api.recoverySetup({ verifier: newVerifier, wrappedMk: await wrapMasterKey(newKek, mkRaw) });
+      setPendingRecoveryCode(newCode);
       await becomeUnlocked(mkRaw, name);
     },
     [addPasskeyForKey, becomeUnlocked],
