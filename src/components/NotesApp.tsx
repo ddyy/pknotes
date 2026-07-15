@@ -18,10 +18,34 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 const AUTOSAVE_MS = 800;
 
+// First prose line wins; fenced code, YAML frontmatter, horizontal rules, and
+// image-only lines don't make useful titles.
 function noteTitle(text: string): string {
-  const line = text.split('\n').find((l) => l.trim().length > 0);
-  if (!line) return 'Untitled';
-  return line.replace(/^#+\s*/, '').trim().slice(0, 60);
+  let inFence = false;
+  let inFrontmatter = false;
+  let firstContentLine = true;
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const isFirst = firstContentLine;
+    firstContentLine = false;
+    if (/^(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) {
+      // `---` as the very first content line opens frontmatter; any later
+      // delimiter closes it (or is just a horizontal rule).
+      inFrontmatter = isFirst;
+      continue;
+    }
+    if (inFrontmatter) continue;
+    if (/^!\[[^\]]*\]\([^)]*\)$/.test(line)) continue;
+    const title = line.replace(/^#+\s*/, '').trim().slice(0, 60);
+    if (title) return title;
+  }
+  return 'Untitled';
 }
 
 function formatWhen(ts: number): string {
@@ -40,6 +64,7 @@ export function NotesApp() {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [showPreview, setShowPreview] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const notesRef = useRef<LocalNote[]>([]);
   notesRef.current = notes;
@@ -113,11 +138,19 @@ export function NotesApp() {
           // preserve the local text as a separate conflict note.
           const current = err.body.current as NoteRecord;
           const localText = note.text;
-          const serverText = await decryptNote(masterKey, current.ciphertext).catch(() => '');
+          // A server copy that fails to decrypt must surface as undecryptable,
+          // not silently become an empty note.
+          const serverText = await decryptNote(masterKey, current.ciphertext).catch(() => null);
           setNotes((prev) =>
             prev.map((n) =>
               n.id === id
-                ? { ...n, text: serverText, version: current.version, updatedAt: current.updated_at }
+                ? {
+                    ...n,
+                    text: serverText ?? '',
+                    undecryptable: serverText === null ? true : n.undecryptable,
+                    version: current.version,
+                    updatedAt: current.updated_at,
+                  }
                 : n,
             ),
           );
@@ -143,6 +176,28 @@ export function NotesApp() {
     },
     [masterKey],
   );
+
+  // Save immediately when the tab is hidden or unloading, so edits sitting in
+  // the debounce window aren't lost to a close/switch.
+  useEffect(() => {
+    const flush = () => {
+      const timers = timersRef.current;
+      timers.forEach((t, id) => {
+        clearTimeout(t);
+        void saveNote(id);
+      });
+      timers.clear();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, [saveNote]);
 
   const onEdit = useCallback(
     (id: string, text: string) => {
@@ -171,6 +226,7 @@ export function NotesApp() {
     ]);
     setSelectedId(created.id);
     setShowPreview(false);
+    setSidebarOpen(false);
   }, [masterKey]);
 
   const deleteNote = useCallback(
@@ -202,7 +258,8 @@ export function NotesApp() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      {sidebarOpen && <button type="button" className="scrim" aria-label="Close notes list" onClick={() => setSidebarOpen(false)} />}
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <header className="sidebar-header">
           <span className="brand">pknotes</span>
           <button type="button" className="primary small" onClick={() => void createNote()}>
@@ -215,7 +272,10 @@ export function NotesApp() {
               <button
                 type="button"
                 className={`note-item ${n.id === selectedId ? 'active' : ''}`}
-                onClick={() => setSelectedId(n.id)}
+                onClick={() => {
+                  setSelectedId(n.id);
+                  setSidebarOpen(false);
+                }}
               >
                 <span className="note-title">{n.undecryptable ? '⚠️ Cannot decrypt' : noteTitle(n.text)}</span>
                 <span className="note-when">{formatWhen(n.updatedAt)}</span>
@@ -248,22 +308,37 @@ export function NotesApp() {
         )}
         {loading ? (
           <div className="placeholder">Decrypting your notes…</div>
-        ) : selected ? (
+        ) : (
           <>
-            <div className="note-toolbar">
-              <span className={`save-state ${saveState}`}>
-                {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Save failed' : ''}
-              </span>
+            <div className={`note-toolbar ${selected ? '' : 'no-note'}`}>
               <div className="toolbar-actions">
-                <button type="button" className="ghost small" onClick={() => setShowPreview((p) => !p)}>
-                  {showPreview ? 'Edit' : 'Preview'}
+                <button
+                  type="button"
+                  className="ghost small menu-button"
+                  aria-expanded={sidebarOpen}
+                  onClick={() => setSidebarOpen(true)}
+                >
+                  ☰ Notes
                 </button>
-                <button type="button" className="ghost small danger" onClick={() => void deleteNote(selected.id)}>
-                  Delete
-                </button>
+                <span className={`save-state ${saveState}`}>
+                  {selected &&
+                    (saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Save failed' : '')}
+                </span>
               </div>
+              {selected && (
+                <div className="toolbar-actions">
+                  <button type="button" className="ghost small" onClick={() => setShowPreview((p) => !p)}>
+                    {showPreview ? 'Edit' : 'Preview'}
+                  </button>
+                  <button type="button" className="ghost small danger" onClick={() => void deleteNote(selected.id)}>
+                    Delete
+                  </button>
+                </div>
+              )}
             </div>
-            {selected.undecryptable ? (
+            {!selected ? (
+              <div className="placeholder">Select a note or create a new one.</div>
+            ) : selected.undecryptable ? (
               <div className="placeholder">
                 This note could not be decrypted with the current key. It may have been written with a different
                 master key.
@@ -274,8 +349,6 @@ export function NotesApp() {
               <Editor noteId={selected.id} value={selected.text} onChange={(text) => onEdit(selected.id, text)} />
             )}
           </>
-        ) : (
-          <div className="placeholder">Select a note or create a new one.</div>
         )}
       </main>
     </div>
