@@ -4,6 +4,8 @@ pknotes ("passkey notes") is end-to-end encrypted markdown notes on Cloudflare W
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/ddyy/pknotes)
 
+![pknotes — encrypted markdown notes unlocked with a passkey](docs/screenshot.png)
+
 > **Status**: working and self-hostable. It has not had an independent security audit. Treat it as a personal deployment, not a public service. Per-IP rate limits guard the auth endpoints, and registration can be closed once you've made your account (see below).
 
 ## How the encryption works
@@ -25,6 +27,59 @@ Notes (markdown)
 - The server (Workers + D1) stores WebAuthn public keys, wrapped copies of the master key, and note ciphertext. A full database dump yields nothing readable.
 - Each passkey wraps the same master key, so adding a device is a single wrap with no re-encryption. Passkeys sync through their platform (iCloud Keychain etc.), which gives you multi-device access for free.
 - A one-time recovery code (160-bit, shown once at signup) also wraps the master key. The server stores a hash of a *verifier* derived from the code; the KEK derived from it stays client-side.
+
+## Threat model
+
+Being explicit about what this design does and does not defend against:
+
+**The server never holds anything readable.** It stores WebAuthn public keys,
+wrapped (encrypted) master keys, note ciphertext, and a hash of the recovery
+verifier. A full database dump, a subpoena, or a malicious database admin
+yields nothing decryptable. Each note's ciphertext is also bound to its note
+id (AES-GCM additional data), so the server can't swap ciphertexts between
+notes undetected.
+
+**What the server does see:** metadata — how many notes you have, when they
+change, their approximate sizes, and your IP. It can also withhold data or
+serve a *stale* version of a note (it can't forge or swap one). If your
+threat model includes traffic analysis of a notes app, this isn't the tool.
+
+**The trust floor every web E2EE app shares:** whoever serves the JavaScript
+could ship a malicious client that exfiltrates keys. That's true of this app
+exactly as it is of Proton, Bitwarden's web vault, and every other browser
+E2EE product. pknotes' mitigations are structural: the client is small enough
+to audit (~1,500 lines, one crypto dependency, no third-party scripts or
+CDNs), and self-hosting makes *you* the party serving the code. If you need
+stronger guarantees than that, you need a pinned native client — which the
+web cannot provide.
+
+**Revocation is rotation.** Removing a passkey blocks future logins, but a
+compromised device may already hold the master key. "Rotate master key" in
+Settings is the real revocation: fresh key, every note re-encrypted, all
+other passkeys cut off, new recovery code. Recovery codes are single-use —
+redeeming one invalidates it (after a short retry grace) and issues a
+replacement.
+
+**Abuse limits:** per-IP rate limits guard registration, login, and recovery;
+personal instances should close registration entirely (see Deploy).
+
+**No independent audit has been performed.** Read the code — it's short on
+purpose.
+
+## Roadmap
+
+- **Offline (PWA)** — the architecture already supports offline *unlock*:
+  decryption never depended on the server, so a cached ciphertext mirror +
+  a local WebAuthn ceremony can open your notes on a plane. Service worker
+  and offline write queue to come.
+- **Encrypted note sharing** — per-note keys sealed to another user's
+  passkey-wrapped public key. Design notes exist; ships after the
+  verification story ("is this really Alice?") is settled.
+- **Worker-level integration tests** — crypto and format logic are tested
+  (`npm test`, zero dependencies); CRUD/conflict/rotation endpoint tests need
+  the Workers test pool.
+- **Import** — export exists (Settings → zip of markdown); import is the
+  missing half.
 
 ## Stack
 
