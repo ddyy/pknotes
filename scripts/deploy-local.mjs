@@ -1,8 +1,10 @@
-// Deploy using a personal, gitignored config overlay.
+// Deploy using a personal database_id kept out of git.
 //
 // The committed wrangler.jsonc keeps a placeholder database_id so the Deploy
-// to Cloudflare button can provision per-user resources. For manual deploys
-// of your own instance, put the real id in .deploy.local.json (gitignored):
+// to Cloudflare button can provision per-user resources. To deploy your own
+// instance from a clone of this repo, supply the real id either as a
+// D1_DATABASE_ID environment variable (e.g. a Workers Builds build variable
+// for git-connected deploys) or in a gitignored .deploy.local.json:
 //
 //   { "database_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" }
 //
@@ -18,19 +20,21 @@ import path from 'node:path';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const overridePath = path.join(root, '.deploy.local.json');
 
-let override;
-try {
-  override = JSON.parse(readFileSync(overridePath, 'utf8'));
-} catch {
-  console.error(
-    `deploy-local: missing or unreadable ${overridePath}\n` +
-      'Create it with your real D1 id (see `wrangler d1 list`):\n' +
-      '  { "database_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" }',
-  );
-  process.exit(1);
+let databaseId = process.env.D1_DATABASE_ID;
+if (!databaseId) {
+  try {
+    databaseId = JSON.parse(readFileSync(overridePath, 'utf8')).database_id;
+  } catch {
+    console.error(
+      `deploy-local: set D1_DATABASE_ID or create ${overridePath}\n` +
+        'with your real D1 id (see `wrangler d1 list`):\n' +
+        '  { "database_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" }',
+    );
+    process.exit(1);
+  }
 }
-if (typeof override.database_id !== 'string' || !/^[0-9a-f-]{36}$/i.test(override.database_id)) {
-  console.error('deploy-local: .deploy.local.json must contain a "database_id" UUID');
+if (typeof databaseId !== 'string' || !/^[0-9a-f-]{36}$/i.test(databaseId)) {
+  console.error('deploy-local: database_id must be a UUID');
   process.exit(1);
 }
 
@@ -49,7 +53,7 @@ if (!source.includes('"database_id"')) {
   console.error(`deploy-local: no database_id field in ${generatedPath}`);
   process.exit(1);
 }
-writeFileSync(generatedPath, source.replace(/"database_id":\s*"[^"]*"/, `"database_id": "${override.database_id}"`));
+writeFileSync(generatedPath, source.replace(/"database_id":\s*"[^"]*"/, `"database_id": "${databaseId}"`));
 
 for (const args of [
   ['wrangler', 'd1', 'migrations', 'apply', 'DB', '--remote'],
