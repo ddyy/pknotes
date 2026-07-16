@@ -14,5 +14,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["worker", "worker-configuration.d.ts"]
+  "include": ["worker", "worker-configuration.d.ts"],
+  // Test files use the `cloudflare:test` / vitest modules, which are typed by
+  // vitest's own tooling, not the worker runtime config. Type-check them there.
+  "exclude": ["worker/**/*.test.ts", "worker/test-helpers.ts", "worker/test-setup.ts"]
 }

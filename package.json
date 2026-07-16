@@ -6,7 +6,9 @@
     "dev": "vite",
     "build": "npm run check && vite build",
     "check": "node scripts/ensure-dev-vars.mjs && wrangler types && tsc -p tsconfig.json && tsc -p tsconfig.worker.json",
-    "test": "node --test tests/*.test.ts",
+    "test": "npm run test:unit && npm run test:worker",
+    "test:unit": "node --test tests/*.test.ts",
+    "test:worker": "vitest run",
     "cf-typegen": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
@@ -17,7 +19,10 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-markdown": "^6.5.0",
@@ -35,6 +40,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.44.0",
+    "@cloudflare/vitest-pool-workers": "^0.18.5",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
@@ -42,6 +48,7 @@
     "@vitejs/plugin-react": "^6.0.3",
     "typescript": "^7.0.2",
     "vite": "^8.1.4",
+    "vitest": "^4.1.10",
     "wrangler": "^4.110.0"
   },
   "private": true,
