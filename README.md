@@ -79,9 +79,6 @@ purpose.
 - **Encrypted note sharing** — per-note keys sealed to another user's
   passkey-wrapped public key. Design notes exist; ships after the
   verification story ("is this really Alice?") is settled.
-- **Worker-level integration tests** — crypto and format logic are tested
-  (`npm test`, zero dependencies); CRUD/conflict/rotation endpoint tests need
-  the Workers test pool.
 - **Import** — export exists (Settings → zip of markdown); import is the
   missing half.
 
@@ -100,6 +97,11 @@ npm run dev   # applies local D1 migrations automatically, then starts vite + wo
 ```
 
 Passkeys work on `localhost` without HTTPS. `.dev.vars` holds the dev `SESSION_SECRET` (created automatically on first run).
+
+```sh
+npm test   # crypto/format unit tests (node:test) + Worker/D1 integration
+           # tests for auth, note CRUD, and rotation concurrency (vitest-pool-workers)
+```
 
 ## Deploy
 
