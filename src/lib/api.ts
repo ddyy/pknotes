@@ -70,12 +70,16 @@ export const api = {
     request<{ credentials: { id: string; transports: string[]; created_at: number }[] }>('/api/auth/credentials'),
   deleteCredential: (id: string) =>
     request<{ ok: true }>(`/api/auth/credentials/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  rotate: (payload: {
+  rotateBegin: (payload: { credentialId: string; notes: { id: string; version: number }[] }) =>
+    post<{ ok: true; rotationId: string }>('/api/auth/rotate/begin', payload),
+  rotateStage: (payload: { rotationId: string; notes: { id: string; ciphertext: string; version: number }[] }) =>
+    post<{ staged: number }>('/api/auth/rotate/stage', payload),
+  rotateCommit: (payload: {
+    rotationId: string;
     credentialId: string;
     wrappedMk: string;
     recovery: { verifier: string; wrappedMk: string };
-    notes: { id: string; ciphertext: string; version: number }[];
-  }) => post<{ ok: true }>('/api/auth/rotate', payload),
+  }) => post<{ ok: true }>('/api/auth/rotate/commit', payload),
   credentialsOptions: () => post<CreationOptionsJSON>('/api/auth/credentials/options'),
   credentialsVerify: (payload: { response: RegistrationResponsePayload; prfSalt: string; wrappedMk: string }) =>
     post<{ ok: true }>('/api/auth/credentials/verify', payload),

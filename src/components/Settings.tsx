@@ -32,10 +32,13 @@ export function Settings({
   notes,
   onClose,
   onNotice,
+  onBeforeRotate,
 }: {
   notes: SettingsNote[];
   onClose: () => void;
   onNotice: (message: string) => void;
+  /** Flush pending autosaves; resolves false if any edit failed to persist. */
+  onBeforeRotate?: () => Promise<boolean>;
 }) {
   const { currentCredentialId, addPasskey, rotate } = useVault();
   const [credentials, setCredentials] = useState<CredentialInfo[] | null>(null);
@@ -84,7 +87,20 @@ export function Settings({
     }
   }, [addPasskey, loadCredentials, onNotice]);
 
+  const undecryptableCount = notes.filter((n) => n.undecryptable).length;
+
   const onRotate = useCallback(async () => {
+    // Rotation re-encrypts every note under the new key. A note that can't be
+    // decrypted now can't be re-encrypted, and the server refuses to rotate
+    // unless every note is included — so block here with a clear reason instead
+    // of failing mid-rotation.
+    if (undecryptableCount > 0) {
+      onNotice(
+        `Can't rotate: ${undecryptableCount} note(s) can't be decrypted with the current key. ` +
+          'Delete them first, then rotate.',
+      );
+      return;
+    }
     if (
       !window.confirm(
         'Rotate the master key? All notes are re-encrypted with a fresh key. ' +
@@ -96,15 +112,21 @@ export function Settings({
     }
     setBusy(true);
     try {
-      await rotate(
-        notes.filter((n) => !n.undecryptable).map(({ id, text, version }) => ({ id, text, version })),
-      );
+      // Persist any in-flight edits first. If a save failed, abort — rotating
+      // now would drop the unsaved edit (it isn't on the server to re-encrypt).
+      const persisted = (await onBeforeRotate?.()) ?? true;
+      if (!persisted) {
+        onNotice('Some edits could not be saved. Fix the connection and try rotating again.');
+        setBusy(false);
+        return;
+      }
+      await rotate();
       // The vault now shows the new recovery code screen; this panel unmounts.
     } catch (err) {
       onNotice(err instanceof Error ? err.message : String(err));
       setBusy(false);
     }
-  }, [notes, onNotice, rotate]);
+  }, [undecryptableCount, onNotice, onBeforeRotate, rotate]);
 
   const onExport = useCallback(() => {
     const decryptable = notes.filter((n) => !n.undecryptable);
@@ -130,7 +152,7 @@ export function Settings({
       <div className="settings-card">
         <header className="settings-header">
           <h2>Settings</h2>
-          <button type="button" className="ghost small" onClick={onClose}>
+          <button type="button" className="ghost small" disabled={busy} onClick={onClose}>
             ✕
           </button>
         </header>

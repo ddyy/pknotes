@@ -34,4 +34,7 @@ async function scheduled(_event: ScheduledController, env: Env): Promise<void> {
   console.log(JSON.stringify({ msg: 'demo wipe complete', notesDeleted: result.meta.changes ?? 0 }));
 }
 
+// `app` is exported for integration tests (app.request); the default export is
+// the Worker entrypoint with both handlers.
+export { app };
 export default { fetch: app.fetch, scheduled };

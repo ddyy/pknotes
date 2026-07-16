@@ -3,6 +3,7 @@ import { api, setUnauthorizedHandler } from './lib/api';
 import {
   APP_PRF_SALT,
   b64uEncode,
+  decryptNote,
   encryptNote,
   generateMasterKeyBytes,
   generateRecoveryCode,
@@ -28,8 +29,9 @@ interface VaultValue {
   unlock: () => Promise<void>;
   recover: (username: string, recoveryCode: string) => Promise<void>;
   addPasskey: () => Promise<void>;
-  /** Re-key the vault: fresh master key, re-encrypted notes, this passkey only. */
-  rotate: (notes: { id: string; text: string; version: number }[]) => Promise<void>;
+  /** Re-key the vault: fresh master key, re-encrypted notes, this passkey only.
+   *  Rotates the authoritative server snapshot; flush pending saves first. */
+  rotate: () => Promise<void>;
   lock: () => Promise<void>;
 }
 
@@ -148,40 +150,67 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     await addPasskeyForKey(rawMkRef.current);
   }, [addPasskeyForKey]);
 
-  const rotate = useCallback(
-    async (notes: { id: string; text: string; version: number }[]) => {
-      // A fresh ceremony proves presence and yields the PRF output for the one
-      // passkey that survives — other credentials' KEKs only exist on their
-      // own devices, so they can't be re-wrapped and are deleted server-side.
-      const options = await api.loginOptions();
-      const { response, prfOutput } = await getPasskeyWithPrf(options);
-      const result = await api.loginVerify({ response });
+  const rotate = useCallback(async () => {
+    const oldMkRaw = rawMkRef.current;
+    if (!oldMkRaw) throw new PasskeyError('Vault is locked.');
+    const oldMasterKey = await importMasterKey(oldMkRaw);
 
-      const newMkRaw = generateMasterKeyBytes();
-      const kek = await kekFromPrf(prfOutput);
-      const newCode = generateRecoveryCode();
-      const { kek: recoveryKek, verifier } = await recoveryKeysFromCode(newCode);
-      const newMasterKey = await importMasterKey(newMkRaw);
-      const encrypted = await Promise.all(
-        notes.map(async (n) => ({
-          id: n.id,
-          ciphertext: await encryptNote(newMasterKey, n.text, n.id),
-          version: n.version,
+    // A fresh ceremony proves presence and yields the PRF output for the one
+    // passkey that survives — other credentials' KEKs only exist on their own
+    // devices, so they can't be re-wrapped and are deleted server-side.
+    const options = await api.loginOptions();
+    const { response, prfOutput } = await getPasskeyWithPrf(options);
+    const result = await api.loginVerify({ response });
+
+    // Rotate the AUTHORITATIVE server snapshot, not cached local text: fetch
+    // every note, decrypt with the old key, re-encrypt with the new one. This
+    // can't overwrite a newer note with stale plaintext (finding #1). Callers
+    // flush pending autosaves before this so no local edit is lost.
+    const { notes: records } = await api.listNotes();
+    const newMkRaw = generateMasterKeyBytes();
+    const kek = await kekFromPrf(prfOutput);
+    const newCode = generateRecoveryCode();
+    const { kek: recoveryKek, verifier } = await recoveryKeysFromCode(newCode);
+    const newMasterKey = await importMasterKey(newMkRaw);
+
+    let encrypted: { id: string; ciphertext: string; version: number }[];
+    try {
+      encrypted = await Promise.all(
+        records.map(async (r) => ({
+          id: r.id,
+          ciphertext: await encryptNote(newMasterKey, await decryptNote(oldMasterKey, r.ciphertext, r.id), r.id),
+          version: r.version,
         })),
       );
-      await api.rotate({
-        credentialId: result.credentialId,
-        wrappedMk: await wrapMasterKey(kek, newMkRaw),
-        recovery: { verifier, wrappedMk: await wrapMasterKey(recoveryKek, newMkRaw) },
-        notes: encrypted,
-      });
-      setCurrentCredentialId(result.credentialId);
-      // Show the new recovery code before the notes, same as at signup.
-      setPendingRecoveryCode(newCode);
-      await becomeUnlocked(newMkRaw, result.username);
-    },
-    [becomeUnlocked],
-  );
+    } catch {
+      // A note that won't decrypt with the current key can't be re-encrypted;
+      // rotating would orphan it, so refuse (Settings blocks this too).
+      throw new PasskeyError('Some notes could not be decrypted; resolve them before rotating.');
+    }
+
+    // Staged rotation under a server-side lock: begin validates our note set
+    // (ids + versions from the fetch) and acquires the lock; stage uploads the
+    // re-encrypted ciphertext while the old copy stays live; commit does the
+    // atomic key swap. The lock blocks note writes throughout.
+    const { rotationId } = await api.rotateBegin({
+      credentialId: result.credentialId,
+      notes: records.map((r) => ({ id: r.id, version: r.version })),
+    });
+    const CHUNK = 40; // must not exceed the server's ROTATE_STAGE_CHUNK
+    for (let i = 0; i < encrypted.length; i += CHUNK) {
+      await api.rotateStage({ rotationId, notes: encrypted.slice(i, i + CHUNK) });
+    }
+    await api.rotateCommit({
+      rotationId,
+      credentialId: result.credentialId,
+      wrappedMk: await wrapMasterKey(kek, newMkRaw),
+      recovery: { verifier, wrappedMk: await wrapMasterKey(recoveryKek, newMkRaw) },
+    });
+    setCurrentCredentialId(result.credentialId);
+    // Show the new recovery code before the notes, same as at signup.
+    setPendingRecoveryCode(newCode);
+    await becomeUnlocked(newMkRaw, result.username);
+  }, [becomeUnlocked]);
 
   const lock = useCallback(async () => {
     rawMkRef.current = null;

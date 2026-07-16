@@ -13,13 +13,38 @@ const CHALLENGE_TTL = 60 * 5;
 export type AuthScope = 'session' | 'recovery';
 
 /** Shared Hono env for all routes: bindings plus the auth variables set by requireAuth. */
-export type AppEnv = { Bindings: Env; Variables: { userId: string; authScope: AuthScope } };
+export type AppEnv = { Bindings: Env; Variables: { userId: string; authScope: AuthScope; authIat: number } };
 
 export interface SessionPayload {
   sub: string;
   scope: AuthScope;
   exp: number;
+  /** users.session_epoch when issued; rotation bumps it to revoke old sessions. */
+  epoch: number;
+  /** Issued-at (seconds). Used to require recent auth for sensitive operations. */
+  iat: number;
 }
+
+/** A sensitive operation must have been authenticated within this window. */
+export const RECENT_AUTH_WINDOW = 5 * 60;
+
+/** A rotation lock older than this (seconds) is abandoned and reclaimable. */
+export const ROTATION_LOCK_TTL = 5 * 60;
+
+// Lease freshness is evaluated with DB time (unixepoch()), never a value
+// computed in the Worker. Because D1 runs a database's queries serially, a
+// note write and a rotation commit that straddle the expiry instant then
+// compare the same rotation_started against a single monotonic clock — they
+// can't both decide "expired" and "live" in opposite directions and slip a
+// note past the rotation. SQL fragment for "still a live lock":
+export const LIVE_LOCK_SQL = `active_rotation IS NOT NULL AND rotation_started > unixepoch() - ${ROTATION_LOCK_TTL}`;
+
+/**
+ * SQL fragment that is true when the user (bound param: user id) does NOT hold
+ * a live rotation lock. Gates note/credential writes against a rotation's
+ * check-then-commit window.
+ */
+export const NO_ACTIVE_ROTATION_SQL = `NOT EXISTS (SELECT 1 FROM users WHERE id = ? AND ${LIVE_LOCK_SQL})`;
 
 export interface ChallengePayload {
   challenge: string;
@@ -87,7 +112,20 @@ function cookieOpts(c: Context, maxAge: number) {
 
 export async function setSessionCookie(c: Context<AppEnv>, userId: string, scope: AuthScope = 'session') {
   const ttl = scope === 'recovery' ? RECOVERY_TTL : SESSION_TTL;
-  const payload: SessionPayload = { sub: userId, scope, exp: Math.floor(Date.now() / 1000) + ttl };
+  // Stamp the user's current session_epoch so a later rotation can revoke this
+  // cookie. A missing row (shouldn't happen for a just-authenticated user)
+  // falls back to epoch 0.
+  const row = await c.env.DB.prepare('SELECT session_epoch FROM users WHERE id = ?')
+    .bind(userId)
+    .first<{ session_epoch: number }>();
+  const nowS = Math.floor(Date.now() / 1000);
+  const payload: SessionPayload = {
+    sub: userId,
+    scope,
+    exp: nowS + ttl,
+    epoch: row?.session_epoch ?? 0,
+    iat: nowS,
+  };
   setCookie(c, SESSION_COOKIE, await signToken(payload, c.env.SESSION_SECRET), cookieOpts(c, ttl));
 }
 
@@ -116,15 +154,20 @@ export function requireAuth(scopes: AuthScope[]) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
     // Sessions are stateless, so a signed cookie outlives account deletion
-    // (e.g. the demo wipe). Confirm the user still exists; the client treats
-    // any 401 as "lock the vault".
-    const user = await c.env.DB.prepare('SELECT 1 FROM users WHERE id = ?').bind(session.sub).first();
-    if (!user) {
+    // (e.g. the demo wipe) and credential revocation. Confirm the user exists
+    // AND the token's epoch still matches: master-key rotation bumps
+    // session_epoch, which invalidates every other device's cookie here. The
+    // client treats any 401 as "lock the vault".
+    const user = await c.env.DB.prepare('SELECT session_epoch FROM users WHERE id = ?')
+      .bind(session.sub)
+      .first<{ session_epoch: number }>();
+    if (!user || (session.epoch ?? 0) !== user.session_epoch) {
       clearSessionCookie(c);
       return c.json({ error: 'Unauthorized' }, 401);
     }
     c.set('userId', session.sub);
     c.set('authScope', session.scope);
+    c.set('authIat', session.iat ?? 0);
     await next();
   };
 }

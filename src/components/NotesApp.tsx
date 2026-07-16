@@ -44,6 +44,9 @@ export function NotesApp() {
   const notesRef = useRef<LocalNote[]>([]);
   notesRef.current = notes;
   const timersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  // In-flight saveNote promises. flushPendingSaves must await these too — a
+  // save that already left the debounce timer isn't in timersRef anymore.
+  const savesInFlightRef = useRef(new Set<Promise<boolean>>());
 
   // Load and decrypt everything once on unlock. Fine at personal scale; the
   // server can't sort or search content it can't read anyway.
@@ -94,11 +97,15 @@ export function NotesApp() {
     return () => timers.forEach((t) => clearTimeout(t));
   }, []);
 
+  // Returns true when the edit is durably persisted (a saved note or a kept
+  // conflict copy), false when it was NOT persisted (network/server error).
+  // Rotation relies on this: a false result must abort rotation, or it would
+  // fetch a server snapshot missing the unpersisted edit.
   const saveNote = useCallback(
-    async (id: string) => {
-      if (!masterKey) return;
+    async (id: string): Promise<boolean> => {
+      if (!masterKey) return true;
       const note = notesRef.current.find((n) => n.id === id);
-      if (!note || note.undecryptable) return;
+      if (!note || note.undecryptable) return true;
       setSaveState('saving');
       try {
         const ciphertext = await encryptNote(masterKey, note.text, id);
@@ -107,6 +114,7 @@ export function NotesApp() {
           prev.map((n) => (n.id === id ? { ...n, version: result.version, updatedAt: result.updated_at } : n)),
         );
         setSaveState('saved');
+        return true;
       } catch (err) {
         if (err instanceof ApiError && err.status === 409 && err.body.current) {
           // Another device saved first. Keep the server copy as this note and
@@ -144,14 +152,49 @@ export function NotesApp() {
           ]);
           setBanner('This note was changed elsewhere. Your local version was kept as a conflict copy.');
           setSaveState('saved');
+          return true; // conflict copy preserved the edit
         } else {
           setSaveState('error');
           setBanner(err instanceof Error ? err.message : String(err));
+          return false; // not persisted
         }
       }
     },
     [masterKey],
   );
+
+  // Run a save and track its promise (and its persisted/failed result) so flush
+  // can await in-flight saves and know whether they succeeded.
+  const runSave = useCallback(
+    (id: string) => {
+      const p = saveNote(id).finally(() => savesInFlightRef.current.delete(p));
+      savesInFlightRef.current.add(p);
+      return p;
+    },
+    [saveNote],
+  );
+
+  // Flush every pending autosave and wait for ALL saves to settle — both the
+  // ones sitting in debounce timers and ones already in flight. Returns true
+  // only if every save persisted; rotation aborts on false so it can't fetch a
+  // server snapshot missing an unsaved edit.
+  const flushPendingSaves = useCallback(async (): Promise<boolean> => {
+    const timers = timersRef.current;
+    const ids = [...timers.keys()];
+    ids.forEach((id) => clearTimeout(timers.get(id)!));
+    timers.clear();
+    ids.forEach((id) => runSave(id));
+    // A settling save can spawn another (conflict copy), so drain to empty,
+    // collecting each save's persisted/failed result.
+    let allPersisted = true;
+    while (savesInFlightRef.current.size > 0) {
+      const outcomes = await Promise.allSettled([...savesInFlightRef.current]);
+      for (const o of outcomes) {
+        if (o.status === 'rejected' || o.value === false) allPersisted = false;
+      }
+    }
+    return allPersisted;
+  }, [runSave]);
 
   // Save immediately when the tab is hidden or unloading, so edits sitting in
   // the debounce window aren't lost to a close/switch.
@@ -160,7 +203,7 @@ export function NotesApp() {
       const timers = timersRef.current;
       timers.forEach((t, id) => {
         clearTimeout(t);
-        void saveNote(id);
+        void runSave(id);
       });
       timers.clear();
     };
@@ -173,7 +216,7 @@ export function NotesApp() {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', flush);
     };
-  }, [saveNote]);
+  }, [runSave]);
 
   const onEdit = useCallback(
     (id: string, text: string) => {
@@ -186,11 +229,11 @@ export function NotesApp() {
         id,
         setTimeout(() => {
           timers.delete(id);
-          void saveNote(id);
+          void runSave(id);
         }, AUTOSAVE_MS),
       );
     },
-    [saveNote],
+    [runSave],
   );
 
   const createNote = useCallback(async () => {
@@ -289,6 +332,7 @@ export function NotesApp() {
           notes={notes.map(({ id, text, version, updatedAt, undecryptable }) => ({ id, text, version, updatedAt, undecryptable }))}
           onClose={() => setShowSettings(false)}
           onNotice={setBanner}
+          onBeforeRotate={flushPendingSaves}
         />
       )}
 
